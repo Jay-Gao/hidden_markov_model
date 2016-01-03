@@ -81,6 +81,42 @@ def expectation_prob(observation, *model_parameters):
     return sum(alpha2)
 
 
+def gama(time_t, state, observation, *model_parameters):
+    """
+    the probability of state at time t for given observation and model parameters.
+    :param time_t: time t
+    :param state: state at time t
+    :param observation
+    :param model_parameters: (pi, a, b)
+    :return:
+    """
+    alpha = forward_probability(time_t, state, observation, *(model_parameters))
+    beta = backward_probability(time_t, state, observation, *(model_parameters))
+    Exp = expectation_prob(observation, *(model_parameters))
+
+    return alpha * beta / Exp
+
+
+def zita(t, state_i, state_j, observation, *model_parameters):
+    """
+    the probability state is i at t and state is j at t+1 for given observation and mode parameters.
+    :param t:
+    :param state_i:
+    :param state_j
+    :param observation:
+    :param model_parameters:
+    :return:
+    """
+    pi, a, b = model_parameters
+    obs = observation
+    i = state_i
+    j = state_j
+    alpha = forward_probability(t, i, obs, *(model_parameters))
+    beta = backward_probability(t+1, j, obs, *(model_parameters))
+    Exp = expectation_prob(obs, *(model_parameters))
+
+    return alpha * a[i-1, j-1] * b[j-1, obs[t]] * beta / Exp
+
 
 if __name__ == '__main__':
     #         state 1,    2,    3,    4
@@ -96,5 +132,5 @@ if __name__ == '__main__':
         [0.7, 0.3],
     ])
     obs = [0, 1, 0]
-    print(backward_probability(1, 3, obs, *(pi, a, b)))
+    print(zita(2, 2, 1, obs, *(pi,a,b)))
 
