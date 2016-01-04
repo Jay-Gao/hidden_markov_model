@@ -4,6 +4,9 @@
 import numpy as np
 import collections
 
+from numpy.linalg import norm
+
+
 class HiddenMarkovModel(object):
 
     def __init__(self):
@@ -157,6 +160,7 @@ class HiddenMarkovModel(object):
     def fit(self, observations=None, states=None, num_states=10, num_obs_states=5):
 
         self.get_obs(observations, states)
+
         if len(self._states) > 0:
             # states are not empty, a supervised model.
             PI = np.zeros(num_states)
@@ -188,9 +192,68 @@ class HiddenMarkovModel(object):
             print(self._a)
             print(self._b)
         else:
-            # states are empty, a supervised model.
-            
+            # states are empty, a supervised model. Using Baum-Welch method.
+            pi1 = [0.3, 0.3, 0.4]
+            a1 = np.array([
+                [0.3, 0.3, 0.4],
+                [0.3, 0.3, 0.4],
+                [0.3, 0.3, 0.4],
+            ])
+            b1 = np.array([
+                [0.5, 0.5],
+                [0.5, 0.5],
+                [0.5, 0.5],
+            ])
 
+            pi2 = np.zeros_like(pi1)
+            a2 = np.zeros_like(a1)
+            b2 = np.zeros_like(b1)
+            eps = 1e-4
+            # initialize model parameters.
+            self.set_model_parameters(pi1, a1, b1)
+            error = 1.0
+            while error > eps:
+                denominator_pi = sum((self.expectation_prob(obs) for obs in self._obs))
+                for i in range(num_states):
+                    pi2[i] = sum((self.forward_probability(1, i+1, obs)*self.backward_probability(1, i+1, obs)\
+                                 for obs in self._obs)) / denominator_pi
+
+                    denominator_a = 0.0
+                    for obs in self._obs:
+                        for t in range(1, len(obs)):
+                            denominator_a += self.forward_probability(t, i+1, obs)*\
+                                             self.backward_probability(t, i+1, obs)
+                    for j in range(num_states):
+                        a_ij = 0.0
+                        for obs in self._obs:
+                            for t in range(1, len(obs)):
+                                a_ij += self.forward_probability(t, i+1, obs)*self._a[i, j]*self._b[j, obs[t]-1]*\
+                                        self.backward_probability(t+1, j+1, obs)
+                        a2[i, j] = a_ij / denominator_a
+
+                    denominator_b = 0.0
+                    for obs in self._obs:
+                        for t in range(1, len(obs)+1):
+                            denominator_b += self.forward_probability(t, i+1, obs)*\
+                                             self.backward_probability(t, i+1, obs)
+                    for k in range(num_obs_states):
+                        b_ik = 0.0
+                        for obs in self._obs:
+                            for t in range(1, len(obs)+1):
+                                b_ik += self.forward_probability(t, i+1, obs)*self.backward_probability(t, i+1, obs)\
+                                        if obs[t-1]-1 == k else 0.0
+                        b2[i, k] = b_ik / denominator_b
+
+                self.set_model_parameters(pi2, a2, b2)
+
+                error = norm(pi1-pi2)**2 + norm(a1-a2)**2 + norm(b1-b2)**2
+                pi1 = pi2.copy()
+                a1 = a2.copy()
+                b1 = b2.copy()
+
+            print(self._pi)
+            print(self._a)
+            print(self._b)
 
 #########################################################################################################
 
@@ -209,10 +272,10 @@ if __name__ == '__main__':
         [0.7, 0.3],
     ])
     states = [[1, 2, 3],[2, 1, 1], [2, 3, 3]]
-    obs = [[1, 2, 1], [1, 1, 2], [2, 2, 1]]
+    obs = [[1, 2, 1], [2, 1, 2], [1, 2, 1]]
     hmm = HiddenMarkovModel()
     # hmm.set_model_parameters(pi, a, b)
-    hmm.get_obs(obs)
-    hmm.fit(obs, states, num_states=3, num_obs_states=2)
+    # hmm.get_obs(obs)
+    hmm.fit(obs, num_states=3, num_obs_states=2)
 
 
