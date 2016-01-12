@@ -1,10 +1,23 @@
-# !/usr/bin/env python3
+# !/usr/local/bin python3
 # -*- coding: utf-8 -*-
 
 import numpy as np
 import collections
 
 from numpy.linalg import norm
+from numpy import random
+
+
+def sampling(prob_distribution):
+    """
+    generate a sample for given probability distribution.
+    :param prob_distribution: discrete probability distribution.
+    """
+    sum_distribution = np.array(prob_distribution).cumsum()
+    t = random.random()
+    for state in range(len(sum_distribution)):
+        if sum_distribution[state] > t:
+            return state
 
 
 class HiddenMarkovModel(object):
@@ -17,7 +30,10 @@ class HiddenMarkovModel(object):
         self._states = []
 
     def set_model_parameters(self, *model_parameters):
-        self._pi, self._a, self._b = model_parameters
+        pi, a, b = model_parameters
+        self._pi = np.array(pi)
+        self._a = np.array(a)
+        self._b = np.array(b)
 
     def get_obs(self, observations=None, states=None):
         if observations is None:
@@ -157,6 +173,36 @@ class HiddenMarkovModel(object):
         Exp = self.expectation_prob(obs)
         return sum((self.zita(t, i, j, obs) for t in range(1, len(obs)))) / Exp
 
+    def generate(self, num_of_obs=100, num_of_test=10, latent_state=False):
+        """
+        generate observations for given model.
+        """
+        states = []
+        obs = []
+
+        for test in range(num_of_test):
+            tmp_states = []
+            tmp_obs = []
+            i = sampling(self._pi)
+            j = sampling(self._b[i])
+            tmp_states.append(i+1)
+            tmp_obs.append(j+1)
+
+            for k in range(num_of_obs-1):
+                i = sampling(self._a[i])
+                j = sampling(self._b[i])
+                tmp_states.append(i+1)
+                tmp_obs.append(j+1)
+
+            states.append(tmp_states)
+            obs.append(tmp_obs)
+
+        # default: ignore latent variable states.
+        if latent_state is False:
+            return obs
+        else:
+            return obs, states
+
     def fit(self, observations=None, states=None, num_states=10, num_obs_states=5):
 
         self.get_obs(observations, states)
@@ -171,7 +217,7 @@ class HiddenMarkovModel(object):
             self._b = B.copy()
 
             for state in self._states:
-                PI[state[0]] += 1
+                PI[state[0]-1] += 1
                 for t in range(len(state)-1):
                     i = state[t] - 1
                     j = state[t+1] - 1
@@ -188,35 +234,36 @@ class HiddenMarkovModel(object):
                     self._a[i, j] = float(A[i, j]) / denominator_a
                 for j in range(num_obs_states):
                     self._b[i, j] = float(B[i, j]) / denominator_b
-            print(self._pi)
-            print(self._a)
-            print(self._b)
+
+            return self._pi, self._a, self._b
+
         else:
             # states are empty, a supervised model. Using Baum-Welch method.
-            pi1 = [0.3, 0.3, 0.4]
-            a1 = np.array([
+            pi = [0.3, 0.3, 0.4]
+            a = np.array([
                 [0.3, 0.3, 0.4],
                 [0.3, 0.3, 0.4],
                 [0.3, 0.3, 0.4],
             ])
-            b1 = np.array([
+            b = np.array([
                 [0.5, 0.5],
                 [0.5, 0.5],
                 [0.5, 0.5],
             ])
 
-            pi2 = np.zeros_like(pi1)
-            a2 = np.zeros_like(a1)
-            b2 = np.zeros_like(b1)
-            eps = 1e-4
+            eps = 1e-8
             # initialize model parameters.
-            self.set_model_parameters(pi1, a1, b1)
-            error = 1.0
+            self.set_model_parameters(pi, a, b)
+            error = 10.0
             while error > eps:
-                denominator_pi = sum((self.expectation_prob(obs) for obs in self._obs))
+                # denominator_pi = sum(self.expectation_prob(obs) for obs in self._obs)
+                denominator_pi = 0.0
                 for i in range(num_states):
-                    pi2[i] = sum((self.forward_probability(1, i+1, obs)*self.backward_probability(1, i+1, obs)\
-                                 for obs in self._obs)) / denominator_pi
+                    denominator_pi += sum(self.forward_probability(1, i+1, obs)*self.backward_probability(1, i+1, obs)\
+                                          for obs in self._obs)
+                for i in range(num_states):
+                    pi[i] = sum(self.forward_probability(1, i+1, obs)*self.backward_probability(1, i+1, obs)\
+                                for obs in self._obs) / denominator_pi
 
                     denominator_a = 0.0
                     for obs in self._obs:
@@ -229,7 +276,7 @@ class HiddenMarkovModel(object):
                             for t in range(1, len(obs)):
                                 a_ij += self.forward_probability(t, i+1, obs)*self._a[i, j]*self._b[j, obs[t]-1]*\
                                         self.backward_probability(t+1, j+1, obs)
-                        a2[i, j] = a_ij / denominator_a
+                        a[i, j] = a_ij / denominator_a
 
                     denominator_b = 0.0
                     for obs in self._obs:
@@ -242,18 +289,12 @@ class HiddenMarkovModel(object):
                             for t in range(1, len(obs)+1):
                                 b_ik += self.forward_probability(t, i+1, obs)*self.backward_probability(t, i+1, obs)\
                                         if obs[t-1]-1 == k else 0.0
-                        b2[i, k] = b_ik / denominator_b
+                        b[i, k] = b_ik / denominator_b
 
-                self.set_model_parameters(pi2, a2, b2)
+                error = norm(self._pi-pi)**2 + norm(self._a-a)**2 + norm(self._b-b)**2
+                self.set_model_parameters(pi, a, b)
 
-                error = norm(pi1-pi2)**2 + norm(a1-a2)**2 + norm(b1-b2)**2
-                pi1 = pi2.copy()
-                a1 = a2.copy()
-                b1 = b2.copy()
-
-            print(self._pi)
-            print(self._a)
-            print(self._b)
+            return self._pi, self._a, self._b
 
 #########################################################################################################
 
@@ -267,15 +308,18 @@ if __name__ == '__main__':
         [0.2, 0.3, 0.5],
     ])
     b = np.array([
-        [0.5, 0.5],
+        [0.3, 0.7],
         [0.4, 0.6],
-        [0.7, 0.3],
+        [0.5, 0.5],
     ])
-    states = [[1, 2, 3],[2, 1, 1], [2, 3, 3]]
-    obs = [[1, 2, 1], [2, 1, 2], [1, 2, 1]]
+
     hmm = HiddenMarkovModel()
-    # hmm.set_model_parameters(pi, a, b)
-    # hmm.get_obs(obs)
-    hmm.fit(obs, num_states=3, num_obs_states=2)
+    hmm.set_model_parameters(pi, a, b)
+    obs, states = hmm.generate(num_of_obs=20, num_of_test=5, latent_state=True)
+
+    pi1, a1, b1 = hmm.fit(obs, num_states=3, num_obs_states=2)
+    print(pi1)
+    print(a1)
+    print(b1)
 
 
